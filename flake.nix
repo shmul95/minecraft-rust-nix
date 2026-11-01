@@ -30,6 +30,38 @@
             --set HORIZON_LAUNCHER_DESKTOP_EXEC "$out/bin/${pname}"
         '';
       };
+
+      # --- Diagnostic apps (verification-only utilities for Phase 1, not
+      # shipped end-user features — see threat_model T-01-05 in 01-01-PLAN.md).
+      # Both reuse appimageTools.defaultFhsEnvArgs so they share the exact
+      # same FHS library surface as the real package above.
+
+      vulkaninfoCheckEnv = pkgs.buildFHSEnv (
+        appimageTools.defaultFhsEnvArgs
+        // {
+          name = "horizon-launcher-vulkaninfo-check";
+          targetPkgs = pkgs: (appimageTools.defaultFhsEnvArgs.targetPkgs pkgs) ++ [ pkgs.vulkan-tools ];
+          runScript = "vulkaninfo";
+        }
+      );
+
+      envCheckBase = pkgs.buildFHSEnv (
+        appimageTools.defaultFhsEnvArgs
+        // {
+          name = "horizon-launcher-env-check";
+          runScript = "env";
+        }
+      );
+
+      envCheck = symlinkJoin {
+        name = "horizon-launcher-env-check-wrapped";
+        paths = [ envCheckBase ];
+        nativeBuildInputs = [ makeWrapper ];
+        postBuild = ''
+          wrapProgram $out/bin/horizon-launcher-env-check \
+            --set HORIZON_LAUNCHER_NO_SELF_UPDATE 1
+        '';
+      };
     in
     {
       packages.${system} = {
@@ -37,9 +69,19 @@
         default = horizon-launcher;
       };
 
-      apps.${system}.default = {
-        type = "app";
-        program = "${horizon-launcher}/bin/${pname}";
+      apps.${system} = {
+        default = {
+          type = "app";
+          program = "${horizon-launcher}/bin/${pname}";
+        };
+        vulkaninfo-check = {
+          type = "app";
+          program = "${vulkaninfoCheckEnv}/bin/horizon-launcher-vulkaninfo-check";
+        };
+        env-check = {
+          type = "app";
+          program = "${envCheck}/bin/horizon-launcher-env-check";
+        };
       };
     };
 }
