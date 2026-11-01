@@ -6,36 +6,12 @@
     let
       system = "x86_64-linux"; # Horizon currently ships Linux x86_64 only
       pkgs = nixpkgs.legacyPackages.${system};
-      inherit (pkgs) appimageTools symlinkJoin makeWrapper;
+      inherit (pkgs) lib appimageTools symlinkJoin makeWrapper;
 
-      pname = "horizon-launcher";
-      version = "0.2.32";
-      src = ./horizon-launcher-linux-x86_64.AppImage; # LOCAL FILE this phase only — fetchurl is PKG-04/Phase 2
-
-      # Derivation defined inline (not split into nix/horizon-launcher.nix) per
-      # CONTEXT.md "Claude's Discretion" — the nix/ module split is the Phase 2+
-      # target shape, not a Phase 1 requirement.
-      wrapped = appimageTools.wrapType2 {
-        inherit pname version src;
-        extraPkgs = pkgs: [ ]; # defaultFhsEnvArgs already covers vulkan/alsa/udev/gl/wayland/openssl — do not hand-list libraries
-      };
-
-      horizon-launcher = symlinkJoin {
-        name = "${pname}-${version}";
-        paths = [ wrapped ];
-        nativeBuildInputs = [ makeWrapper ];
-        postBuild = ''
-          wrapProgram $out/bin/${pname} \
-            --set HORIZON_LAUNCHER_NO_SELF_UPDATE 1 \
-            --set HORIZON_LAUNCHER_DESKTOP_EXEC "$out/bin/${pname}"
-        '';
-        meta = {
-          description = "Horizon launcher (Minecraft-in-Rust), packaged via appimageTools.wrapType2";
-          license = pkgs.lib.licenses.mit;
-          platforms = [ "x86_64-linux" ];
-          mainProgram = pname;
-        };
-      };
+      # The real derivation lives in nix/horizon-launcher.nix, which reads
+      # version/url/hash exclusively from nix/sources.json (the single-file
+      # pin — see nix/update.sh for the bump procedure).
+      horizon-launcher = pkgs.callPackage ./nix/horizon-launcher.nix { };
 
       # --- Diagnostic apps (verification-only utilities for Phase 1, not
       # shipped end-user features — see threat_model T-01-05 in 01-01-PLAN.md).
@@ -97,7 +73,7 @@
       apps.${system} = {
         default = {
           type = "app";
-          program = "${horizon-launcher}/bin/${pname}";
+          program = lib.getExe horizon-launcher;
         };
         vulkaninfo-check = {
           type = "app";
