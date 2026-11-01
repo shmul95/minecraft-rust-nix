@@ -2,7 +2,7 @@
   description = "Horizon (Minecraft-in-Rust) launcher, packaged for Nix/NixOS";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   outputs =
-    { self, nixpkgs }:
+    { nixpkgs, ... }:
     let
       system = "x86_64-linux"; # Horizon currently ships Linux x86_64 only
       pkgs = nixpkgs.legacyPackages.${system};
@@ -29,12 +29,30 @@
             --set HORIZON_LAUNCHER_NO_SELF_UPDATE 1 \
             --set HORIZON_LAUNCHER_DESKTOP_EXEC "$out/bin/${pname}"
         '';
+        meta = {
+          description = "Horizon launcher (Minecraft-in-Rust), packaged via appimageTools.wrapType2";
+          license = pkgs.lib.licenses.mit;
+          platforms = [ "x86_64-linux" ];
+          mainProgram = pname;
+        };
       };
 
       # --- Diagnostic apps (verification-only utilities for Phase 1, not
       # shipped end-user features — see threat_model T-01-05 in 01-01-PLAN.md).
       # Both reuse appimageTools.defaultFhsEnvArgs so they share the exact
       # same FHS library surface as the real package above.
+      #
+      # SECURITY NOTE (code review CR-01, 01-REVIEW.md): buildFHSEnv's bubblewrap
+      # sandbox is an FHS *compatibility* shim, not a security sandbox — by default
+      # it bind-mounts every top-level host dir except /nix /dev /proc /etc
+      # (including $HOME) read-write, and does not unshare the network namespace.
+      # This means horizon-launcher and these diagnostics already have full $HOME
+      # + network access today, not merely from Phase 3 onward as 01-01-PLAN.md's
+      # threat model T-01-03 incorrectly assumed. vulkaninfo-check needs neither
+      # network nor $HOME, so it unshares net below as a free hardening win. The
+      # real horizon-launcher package needs both (MS OAuth, ~/.minecraft in Phase 3)
+      # and is tracked as a Phase 3 input to scope down deliberately rather than
+      # inherit the "bind all of /home" default silently.
 
       vulkaninfoCheckEnv = pkgs.buildFHSEnv (
         appimageTools.defaultFhsEnvArgs
@@ -42,6 +60,7 @@
           name = "horizon-launcher-vulkaninfo-check";
           targetPkgs = pkgs: (appimageTools.defaultFhsEnvArgs.targetPkgs pkgs) ++ [ pkgs.vulkan-tools ];
           runScript = "vulkaninfo";
+          unshareNet = true;
         }
       );
 
@@ -49,7 +68,13 @@
         appimageTools.defaultFhsEnvArgs
         // {
           name = "horizon-launcher-env-check";
-          runScript = "env";
+          # Filtered to HORIZON_* only (not a bare `env`) — buildFHSEnv does not
+          # clear the host environment, so an unfiltered dump would leak any
+          # secrets exported in the invoking shell (review finding WR-01).
+          runScript = "${pkgs.writeShellScript "horizon-env-check" ''
+            env | grep '^HORIZON_'
+          ''}";
+          unshareNet = true;
         }
       );
 
