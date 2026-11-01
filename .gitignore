@@ -1,0 +1,5 @@
+.claude/
+*.AppImage
+result
+result-*
+.direnv/
