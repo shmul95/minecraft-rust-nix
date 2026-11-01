@@ -10,6 +10,9 @@ set -uo pipefail
 
 FLAKE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKDIR="$(mktemp -d)"
+# No cleanup trap: WORKDIR intentionally persists after exit so RUN_LOG (printed
+# below) remains readable for post-hoc inspection — this is a diagnostic script,
+# not a cleanup-sensitive one. /tmp is reclaimed by the OS/tmpfs lifecycle anyway.
 BEFORE="$WORKDIR/before.txt"
 AFTER="$WORKDIR/after.txt"
 RUNLOG="$WORKDIR/run.log"
@@ -32,6 +35,10 @@ echo "# Work dir: $WORKDIR" >&2
 snapshot > "$BEFORE"
 
 BIN_PATH="$(nix build "$FLAKE_DIR#default" --no-link --print-out-paths)/bin/horizon-launcher"
+if [ ! -x "$BIN_PATH" ]; then
+  echo "ERROR: nix build did not produce an executable at $BIN_PATH — aborting rather than reporting a false CLEAN result." >&2
+  exit 1
+fi
 echo "# Binary: $BIN_PATH" >&2
 
 # Discover the real update-check invocation rather than assuming a flag name.
@@ -43,10 +50,13 @@ fi
 
 if echo "$UPDATE_HELP" | grep -qi -- '--check'; then
   CMD=("$BIN_PATH" update --check)
-elif echo "$HELP_OUT" | grep -qi 'update'; then
-  CMD=("$BIN_PATH" update)
 else
-  echo "# No 'update' subcommand discovered via --help; falling back to a bounded default launch to exercise the startup self-update check." >&2
+  # Deliberately do NOT fall back to a bare `update` subcommand here: without a
+  # confirmed --check/dry-run flag, `update` is exactly the write-attempting
+  # codepath this script exists to verify is neutralized, not something to run
+  # speculatively. Fall back to the bounded default launch instead, which only
+  # exercises the startup self-update check, never an explicit update command.
+  echo "# No 'update --check'-style flag discovered via --help; falling back to a bounded default launch to exercise the startup self-update check (not invoking a bare 'update' subcommand)." >&2
   CMD=("$BIN_PATH")
 fi
 
@@ -67,7 +77,7 @@ else
   echo "RESULT: HOME_DIFF=CLEAN"
 fi
 
-if grep -qiE 'permission denied|read-only file system|up.to.date|no update|managed externally|EROFS' "$RUNLOG"; then
+if grep -qiE 'permission denied|read-only file system|up.to.date|no update|managed externally|EROFS|is available \(this is|[0-9]+\.[0-9]+\.[0-9]+ is available' "$RUNLOG"; then
   echo "RESULT: SELF_UPDATE_SUPPRESSED=PASS"
 else
   echo "RESULT: SELF_UPDATE_SUPPRESSED=UNKNOWN"
