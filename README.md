@@ -75,7 +75,7 @@ These are all manually-run `apps`/scripts — some need network access or a virt
 
 ## Current Status
 
-Automated and verified: `nix build`/`nix run`, self-update neutralization, `~/.minecraft` passthrough with sandbox narrowing, and the installed `.desktop` entry's file-level correctness (content + no collision with Horizon's own self-write).
+Automated and verified: `nix build`/`nix run` (including from a real invocation directory under `$HOME` — a milestone-integration-audit BLOCKER where the sandbox narrowing broke bwrap's `--chdir` was found and fixed), self-update neutralization, `~/.minecraft` passthrough with sandbox narrowing, and the installed `.desktop` entry's file-level correctness (content + no collision with Horizon's own self-write).
 
 Two categories of human verification remain genuinely pending — not fabricated, not glossed over:
 
