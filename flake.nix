@@ -147,5 +147,44 @@
       };
 
       formatter.${system} = pkgs.nixfmt-rfc-style;
+
+      # MAINT-02/MAINT-04: offline/sandboxed checks run by `nix flake check`. None of
+      # these invoke network — network-requiring scripts (check-self-update.sh,
+      # check-home-passthrough.sh, check-oauth-reachability.sh) stay separate,
+      # manually-run apps.${system}.* entries above, unchanged.
+      checks.${system} = {
+        # MAINT-02: "the package builds" — reuse the exact same derivation shipped as
+        # packages.${system}.default so `nix flake check` building this check IS the build check.
+        build = horizon-launcher;
+
+        # MAINT-02: desktop-file-validate on the installed, Nix-shipped .desktop entry.
+        # Offline-safe: only inspects a file already present in horizon-launcher's own output.
+        desktop-file-validate =
+          pkgs.runCommand "horizon-launcher-desktop-file-validate"
+            {
+              nativeBuildInputs = [ pkgs.desktop-file-utils ];
+            }
+            ''
+              desktop-file-validate ${horizon-launcher}/share/applications/horizon-launcher.desktop
+              touch $out
+            '';
+
+        # MAINT-04: static, build-time closure inspection — confirms no Mojang-owned
+        # Minecraft-asset-named store path ever lands in the world-readable Nix store.
+        # Uses pkgs.closureInfo (pure-Nix primitive), NOT `nix path-info` — the latter needs
+        # Nix daemon/socket access unavailable inside a sandboxed check derivation's build.
+        no-mojang-assets-in-closure =
+          pkgs.runCommand "horizon-launcher-no-mojang-assets-in-closure"
+            {
+              closureInfo = pkgs.closureInfo { rootPaths = [ horizon-launcher ]; };
+            }
+            ''
+              if grep -iE 'mojang|minecraft' "$closureInfo/store-paths"; then
+                echo "FAIL: closure contains a store path name matching Mojang/Minecraft asset patterns" >&2
+                exit 1
+              fi
+              touch $out
+            '';
+      };
     };
 }
