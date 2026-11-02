@@ -6,7 +6,12 @@
     let
       system = "x86_64-linux"; # Horizon currently ships Linux x86_64 only
       pkgs = nixpkgs.legacyPackages.${system};
-      inherit (pkgs) lib appimageTools symlinkJoin makeWrapper;
+      inherit (pkgs)
+        lib
+        appimageTools
+        symlinkJoin
+        makeWrapper
+        ;
 
       # The real derivation lives in nix/horizon-launcher.nix, which reads
       # version/url/hash exclusively from nix/sources.json (the single-file
@@ -126,5 +131,21 @@
           program = "${homePassthroughCheckEnv}/bin/horizon-launcher-home-passthrough-check";
         };
       };
+
+      # MAINT-01: a packaging-tool shell for anyone hacking on this flake, not a
+      # Horizon-development shell — no Rust/Cargo/JDK, since this project never
+      # builds Horizon from source (see PROJECT.md Out of Scope).
+      devShells.${system}.default = pkgs.mkShell {
+        name = "horizon-launcher-maintainer-shell";
+        packages = [
+          pkgs.jq # used by nix/update.sh to parse `nix store prefetch-file --json`
+          pkgs.curl # fetching/inspecting upstream release metadata by hand
+          pkgs.patchelf # debugging the wrapped binary's ELF interpreter/RPATH directly
+          pkgs.shellcheck # lints nix/*.sh (update.sh, check-*.sh)
+          pkgs.nixfmt-rfc-style # Nix formatter (`nix fmt` via the formatter output below)
+        ];
+      };
+
+      formatter.${system} = pkgs.nixfmt-rfc-style;
     };
 }
