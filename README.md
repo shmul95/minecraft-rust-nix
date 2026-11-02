@@ -30,7 +30,7 @@ drops you into a shell with `jq`, `curl`, `patchelf`, and `shellcheck` on `PATH`
 
 ## Legal Prerequisite
 
-You must already own a legitimate Minecraft Java Edition account/copy (26.3). This flake packages tooling only — it never bundles or redistributes Mojang-owned game assets. That claim isn't just asserted: `checks.${system}.no-mojang-assets-in-closure` statically confirms, at build time, that no Mojang/Minecraft-named store paths exist in the built closure.
+You must already own a legitimate Minecraft Java Edition account/copy (currently version 26.3). This flake packages tooling only — it never bundles or redistributes Mojang-owned game assets. That claim isn't just asserted: `checks.${system}.no-mojang-assets-in-closure` scans the built closure's store-path *names* for Mojang/Minecraft-style naming — a name-pattern heuristic, not a content/filename-inside-output scan, which is sufficient today since no phase of this project ever fetches real Minecraft assets at build time.
 
 ## Signing In (Microsoft OAuth Device Code)
 
@@ -71,7 +71,7 @@ Separately, Horizon's self-updater is neutralized via `HORIZON_LAUNCHER_NO_SELF_
 | `nix/check-oauth-reachability.sh` | RUN-02 — confirms the Microsoft OAuth device-code mechanism and TLS reachability. Needs real network. |
 | `nix/check-desktop-entry.sh` | RUN-03 — confirms the static `.desktop`/icon install is correct and never collides with Horizon's own self-written entry. |
 
-These are all manually-run `apps`/scripts — some need network access or a virtual display, so they are deliberately **not** part of `nix flake check`, which stays sandboxed and offline and runs automatically (build, desktop-file validation, and the Mojang-asset closure scan).
+These are all manually-run `apps`/scripts — some need network access or a virtual display, so they are deliberately **not** part of `nix flake check`'s `checks.${system}.*` block (build, desktop-file validation, the Mojang-asset closure scan). Note that `checks.build` still builds the real package via `fetchurl`, so a cold store with no reachable binary cache needs network the first time — Nix's fixed-output-derivation sandbox exemption, not a bug; only the *maintainer-script* layer above is unconditionally network-independent.
 
 ## Current Status
 
