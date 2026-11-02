@@ -10,6 +10,12 @@ let
     hash = sources.hash;
   };
 
+  # Extracted separately (cheap, content-addressed, independently cached from wrapType2's own
+  # internal extraction) purely to source the AppImage's own bundled .desktop file + icon set
+  # for a Nix-native static install. Confirmed present at these exact paths by direct
+  # --appimage-extract inspection of v0.2.32, 2026-11-02 (see 03-02-PLAN.md's <ground_truth>).
+  appimageContents = appimageTools.extractType2 { inherit pname version src; };
+
   wrapped = appimageTools.wrapType2 {
     inherit pname version src;
     extraPkgs = pkgs: [ ]; # defaultFhsEnvArgs already covers vulkan/alsa/udev/gl/wayland/openssl
@@ -35,6 +41,23 @@ let
       "--bind \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft} \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
       "--bind $HOME/.local/share/horizon-launcher $HOME/.local/share/horizon-launcher"
     ];
+
+    # RUN-03: ship the AppImage's own bundled .desktop + icon set via the Nix-native
+    # convention instead of letting the binary run its own `desktop-entry` self-write
+    # subcommand. Collision with that self-write is already structurally avoided by 03-01's
+    # $HOME narrowing above: the self-write targets $HOME/.local/share/applications, a path
+    # intentionally left unbound, so it only ever reaches the sandbox's ephemeral per-run
+    # tmpfs — see nix/check-desktop-entry.sh for the empirical proof.
+    extraInstallCommands = ''
+      install -Dm444 ${appimageContents}/usr/share/applications/horizon-launcher.desktop \
+        $out/share/applications/horizon-launcher.desktop
+      for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512; do
+        install -Dm444 ${appimageContents}/usr/share/icons/hicolor/$size/apps/horizon.png \
+          $out/share/icons/hicolor/$size/apps/horizon.png
+      done
+      install -Dm444 ${appimageContents}/usr/share/icons/hicolor/scalable/apps/horizon.svg \
+        $out/share/icons/hicolor/scalable/apps/horizon.svg
+    '';
   };
 in
 symlinkJoin {
