@@ -45,6 +45,15 @@ let
       "--tmpfs $HOME"
       "--bind \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft} \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
       "--bind $HOME/.local/share/horizon-launcher $HOME/.local/share/horizon-launcher"
+      # Integration-audit fix (v1.0-MILESTONE-AUDIT.md BLOCKER): wrapType2's default script
+      # unconditionally does `--chdir "$(pwd)"`. If the invoking shell's cwd is anywhere under
+      # the real $HOME other than the two rebind targets above, that path is now an empty
+      # tmpfs hole and bwrap fails outright with "Can't chdir" before the binary ever runs —
+      # reproduced live via `cd ~/some/project && nix run .#default`. bwrap takes the LAST
+      # --chdir on its argv, so appending one more here (to $HOME itself, which the tmpfs
+      # mount above guarantees always exists) overrides the caller-cwd default and makes the
+      # launcher start regardless of the invoking shell's working directory.
+      "--chdir $HOME"
     ];
   };
 
