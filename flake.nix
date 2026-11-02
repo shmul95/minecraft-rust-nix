@@ -69,27 +69,17 @@
         '';
       };
 
-      # RUN-01 verification probe (03-01-PLAN.md): reuses the SAME
-      # extraPreBwrapCmds/extraBwrapArgs narrowing as nix/horizon-launcher.nix's
-      # real package above (literal duplication is intentional, matching the
-      # existing diagnostic-app convention in this file — standalone
-      # verification probes are not meant to share code with the shipped
-      # package's derivation module). Proves a decoy file outside the narrowed
-      # paths is invisible, and that $HOME/.minecraft (or HORIZON_MINECRAFT_DIR)
-      # round-trips reads/writes correctly through the narrowed sandbox.
+      # RUN-01 verification probe (03-01-PLAN.md): reuses the real package's
+      # homeNarrowingArgs via passthru (not a hand-duplicated copy — 03-REVIEW.md
+      # WR-02 flagged the original literal-duplication approach as a drift risk).
+      # Proves a decoy file outside the narrowed paths is invisible, and that
+      # $HOME/.minecraft (or HORIZON_MINECRAFT_DIR) round-trips reads/writes
+      # correctly through the exact same narrowed sandbox the shipped package uses.
       homePassthroughCheckEnv = pkgs.buildFHSEnv (
         appimageTools.defaultFhsEnvArgs
+        // horizon-launcher.homeNarrowingArgs
         // {
           name = "horizon-launcher-home-passthrough-check";
-          extraPreBwrapCmds = ''
-            mkdir -p "$HOME/.local/share/horizon-launcher"
-            mkdir -p "''${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
-          '';
-          extraBwrapArgs = [
-            "--tmpfs $HOME"
-            "--bind \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft} \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
-            "--bind $HOME/.local/share/horizon-launcher $HOME/.local/share/horizon-launcher"
-          ];
           runScript = "${pkgs.writeShellScript "horizon-home-passthrough-check" ''
             MC_DIR="''${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
             echo "RESULT: MC_DIR=$MC_DIR"

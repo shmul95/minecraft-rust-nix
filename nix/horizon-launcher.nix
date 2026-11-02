@@ -16,32 +16,45 @@ let
   # --appimage-extract inspection of v0.2.32, 2026-11-02 (see 03-02-PLAN.md's <ground_truth>).
   appimageContents = appimageTools.extractType2 { inherit pname version src; };
 
-  wrapped = appimageTools.wrapType2 {
-    inherit pname version src;
-    extraPkgs = pkgs: [ ]; # defaultFhsEnvArgs already covers vulkan/alsa/udev/gl/wayland/openssl
-
-    # CR-01 fix (01-REVIEW.md): buildFHSEnv's default auto-mount binds every top-level host
-    # dir except /nix /dev /proc /etc read-write, including all of /home, not just the
-    # invoking user's $HOME and not just .minecraft. Narrow it: tmpfs over $HOME (deny by
-    # default), then explicitly re-bind only the two paths Horizon actually needs. Verified
-    # empirically against a live build (2026-11-02): see 03-01-PLAN.md's <ground_truth> block.
+  # CR-01 fix (01-REVIEW.md): buildFHSEnv's default auto-mount binds every top-level host
+  # dir except /nix /dev /proc /etc read-write, including all of /home, not just the
+  # invoking user's $HOME and not just .minecraft. Narrow it: tmpfs over $HOME (deny by
+  # default), then explicitly re-bind only the two paths Horizon actually needs. Verified
+  # empirically against a live build (2026-11-02): see 03-01-PLAN.md's <ground_truth> block.
+  #
+  # Exported as `homeNarrowingArgs` (via passthru below) rather than duplicated in flake.nix's
+  # home-passthrough-check diagnostic app, so the two can never silently drift apart (03-REVIEW.md
+  # WR-02). Assumes $HOME is a direct child of /home (e.g. /home/<user>) — a non-standard $HOME
+  # (running as root -> /root, or a custom useradd -d outside /home) falls back to the fully-exposed
+  # default for its enclosing top-level directory; not handled here (03-REVIEW.md WR-04, tracked
+  # follow-up, not re-litigated in this phase).
+  homeNarrowingArgs = {
     extraPreBwrapCmds = ''
-      mkdir -p "$HOME/.local/share/horizon-launcher"
-      mkdir -p "''${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
+      for d in "$HOME/.local/share/horizon-launcher" "''${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"; do
+        case "$d" in
+          *" "*) echo "horizon-launcher: refusing to sandbox a path containing a space: $d" >&2; exit 1 ;;
+        esac
+        mkdir -p "$d"
+      done
     '';
-    # Residual scope: top-level host dirs other than /home (e.g. /mnt, /media) remain fully
-    # auto-mounted by buildFHSEnv's default — out of this narrowing's scope (CR-01 specifically
-    # flagged /home); $HOME/.config and other XDG dirs are now ephemeral per-run inside the
-    # sandbox too (only .minecraft and .local/share/horizon-launcher persist) — this may
-    # degrade xdg-open's default-browser detection for the OAuth flow, but does not break the
-    # flow itself since the device code + microsoft.com/link URL are always printed to stdout
-    # regardless (verified in nix/check-oauth-reachability.sh).
+    # WR-01 (03-REVIEW.md): these values are spliced unquoted into a bash array by nixpkgs'
+    # extraBwrapArgs mechanism — word-splitting/glob risk if $HOME or HORIZON_MINECRAFT_DIR ever
+    # contains whitespace/glob chars. The extraPreBwrapCmds guard above fails loudly in that case
+    # instead of letting bwrap fail with an opaque argv-parsing error.
     extraBwrapArgs = [
       "--tmpfs $HOME"
       "--bind \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft} \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
       "--bind $HOME/.local/share/horizon-launcher $HOME/.local/share/horizon-launcher"
     ];
+  };
 
+  wrapped = appimageTools.wrapType2 (
+    {
+      inherit pname version src;
+      extraPkgs = pkgs: [ ]; # defaultFhsEnvArgs already covers vulkan/alsa/udev/gl/wayland/openssl
+    }
+    // homeNarrowingArgs
+    // {
     # RUN-03: ship the AppImage's own bundled .desktop + icon set via the Nix-native
     # convention instead of letting the binary run its own `desktop-entry` self-write
     # subcommand. Collision with that self-write is already structurally avoided by 03-01's
@@ -58,7 +71,8 @@ let
       install -Dm444 ${appimageContents}/usr/share/icons/hicolor/scalable/apps/horizon.svg \
         $out/share/icons/hicolor/scalable/apps/horizon.svg
     '';
-  };
+    }
+  );
 in
 symlinkJoin {
   inherit pname version; # REQUIRED so .pname/.version resolve on the result (plain `name =` string alone does not set these — plan-checker verified empirically)
@@ -76,4 +90,7 @@ symlinkJoin {
     platforms = [ "x86_64-linux" ];
     mainProgram = pname;
   };
+  # Exposed so flake.nix's home-passthrough-check diagnostic app can reuse the exact
+  # same narrowing args instead of a hand-duplicated copy (03-REVIEW.md WR-02).
+  passthru.homeNarrowingArgs = homeNarrowingArgs;
 }
