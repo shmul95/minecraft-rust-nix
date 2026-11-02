@@ -22,13 +22,18 @@
       # sandbox is an FHS *compatibility* shim, not a security sandbox — by default
       # it bind-mounts every top-level host dir except /nix /dev /proc /etc
       # (including $HOME) read-write, and does not unshare the network namespace.
-      # This means horizon-launcher and these diagnostics already have full $HOME
-      # + network access today, not merely from Phase 3 onward as 01-01-PLAN.md's
-      # threat model T-01-03 incorrectly assumed. vulkaninfo-check needs neither
-      # network nor $HOME, so it unshares net below as a free hardening win. The
-      # real horizon-launcher package needs both (MS OAuth, ~/.minecraft in Phase 3)
-      # and is tracked as a Phase 3 input to scope down deliberately rather than
-      # inherit the "bind all of /home" default silently.
+      # RESOLVED (Phase 3, 03-01-PLAN.md): the shipped horizon-launcher package
+      # (nix/horizon-launcher.nix) now narrows this via extraPreBwrapCmds +
+      # extraBwrapArgs — --tmpfs $HOME followed by an explicit --bind of only
+      # ${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft} and
+      # $HOME/.local/share/horizon-launcher, so it no longer inherits the "bind
+      # all of /home" default. The two diagnostic apps below intentionally keep
+      # using the full (unnarrowed) defaultFhsEnvArgs FHS env, since they are
+      # verification-only utilities that never touch real user state; the new
+      # home-passthrough-check app further below reuses the real narrowing args
+      # specifically to empirically prove the narrowing works (nix/check-home-passthrough.sh).
+      # vulkaninfo-check/env-check need neither network nor $HOME, so they unshare
+      # net below as a free hardening win.
 
       vulkaninfoCheckEnv = pkgs.buildFHSEnv (
         appimageTools.defaultFhsEnvArgs
@@ -63,6 +68,49 @@
             --set HORIZON_LAUNCHER_NO_SELF_UPDATE 1
         '';
       };
+
+      # RUN-01 verification probe (03-01-PLAN.md): reuses the SAME
+      # extraPreBwrapCmds/extraBwrapArgs narrowing as nix/horizon-launcher.nix's
+      # real package above (literal duplication is intentional, matching the
+      # existing diagnostic-app convention in this file — standalone
+      # verification probes are not meant to share code with the shipped
+      # package's derivation module). Proves a decoy file outside the narrowed
+      # paths is invisible, and that $HOME/.minecraft (or HORIZON_MINECRAFT_DIR)
+      # round-trips reads/writes correctly through the narrowed sandbox.
+      homePassthroughCheckEnv = pkgs.buildFHSEnv (
+        appimageTools.defaultFhsEnvArgs
+        // {
+          name = "horizon-launcher-home-passthrough-check";
+          extraPreBwrapCmds = ''
+            mkdir -p "$HOME/.local/share/horizon-launcher"
+            mkdir -p "''${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
+          '';
+          extraBwrapArgs = [
+            "--tmpfs $HOME"
+            "--bind \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft} \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
+            "--bind $HOME/.local/share/horizon-launcher $HOME/.local/share/horizon-launcher"
+          ];
+          runScript = "${pkgs.writeShellScript "horizon-home-passthrough-check" ''
+            MC_DIR="''${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
+            echo "RESULT: MC_DIR=$MC_DIR"
+            if [ -f "$HOME/secret.txt" ]; then
+              echo "RESULT: LEAK_TEST=FAIL"
+            else
+              echo "RESULT: LEAK_TEST=PASS"
+            fi
+            if [ -d "$MC_DIR" ]; then
+              echo "sandbox-write-ok-$$" > "$MC_DIR/.sandbox-write-probe" \
+                && [ "$(cat "$MC_DIR/.sandbox-write-probe")" = "sandbox-write-ok-$$" ] \
+                && echo "RESULT: WRITE_TEST=PASS" \
+                || echo "RESULT: WRITE_TEST=FAIL"
+              ls -A "$MC_DIR" | sed 's/^/RESULT: MC_DIR_ENTRY=/'
+            else
+              echo "RESULT: WRITE_TEST=FAIL (MC_DIR does not exist)"
+            fi
+          ''}";
+          unshareNet = true;
+        }
+      );
     in
     {
       packages.${system} = {
@@ -82,6 +130,10 @@
         env-check = {
           type = "app";
           program = "${envCheck}/bin/horizon-launcher-env-check";
+        };
+        home-passthrough-check = {
+          type = "app";
+          program = "${homePassthroughCheckEnv}/bin/horizon-launcher-home-passthrough-check";
         };
       };
     };
