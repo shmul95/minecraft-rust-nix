@@ -20,6 +20,10 @@ nix run github:<owner>/minecraft-rust#install
 
 (from a local checkout: `nix run .#install`) installs the launcher persistently into your Nix profile: `horizon-launcher` on your `PATH`, "Horizon" in your app menu. Sign-in happens inside the launcher via Microsoft device-code. Re-running it upgrades the installed copy to the flake revision being invoked. It installs the launcher tooling only — never Minecraft game assets (see Legal Prerequisite).
 
+### In-app native builds
+
+The package bundles the native-build toolchain the launcher's in-app "Native build of Horizon" dialog checks for — a C compiler, `pkg-config`, and the ALSA/libudev development files. On NixOS, ignore the dialog's `sudo apt install ...` instructions entirely; pressing `[Build]` is all that's needed. Only that toolchain is bundled — the launcher manages its own game-source checkout and remaining build tooling.
+
 ### Build it
 
 ```
@@ -78,6 +82,7 @@ Separately, Horizon's self-updater is neutralized via `HORIZON_LAUNCHER_NO_SELF_
 | `nix/check-home-passthrough.sh` | RUN-01 — confirms `~/.minecraft`/`HORIZON_MINECRAFT_DIR` passthrough works correctly and the sandbox narrowing doesn't leak anything else from `$HOME`. |
 | `nix/check-oauth-reachability.sh` | RUN-02 — confirms the Microsoft OAuth device-code mechanism and TLS reachability. Needs real network. |
 | `nix/check-desktop-entry.sh` | RUN-03 — confirms the static `.desktop`/icon install is correct and never collides with Horizon's own self-written entry. |
+| `nix/check-native-build-deps.sh` | 261105-o0f — confirms cc, pkg-config, and the ALSA/libudev dev files resolve inside the packaged FHS sandbox (the "Native build of Horizon" pre-flight deps). |
 
 These are all manually-run `apps`/scripts — some need network access or a virtual display, so they are deliberately **not** part of `nix flake check`'s `checks.${system}.*` block (build, desktop-file validation, the Mojang-asset closure scan). Note that `checks.build` still builds the real package via `fetchurl`, so a cold store with no reachable binary cache needs network the first time — Nix's fixed-output-derivation sandbox exemption, not a bug; only the *maintainer-script* layer above is unconditionally network-independent.
 
