@@ -102,6 +102,17 @@
             else
               echo "RESULT: WRITE_TEST=FAIL (MC_DIR does not exist)"
             fi
+            HORIZON_HOME_DIR="''${HORIZON_HOME:-$HOME/.local/share/horizon}"
+            echo "RESULT: HORIZON_HOME_DIR=$HORIZON_HOME_DIR"
+            if [ -d "$HORIZON_HOME_DIR" ]; then
+              echo "sandbox-write-ok-$$" > "$HORIZON_HOME_DIR/.sandbox-write-probe" \
+                && [ "$(cat "$HORIZON_HOME_DIR/.sandbox-write-probe")" = "sandbox-write-ok-$$" ] \
+                && echo "RESULT: HORIZON_HOME_WRITE_TEST=PASS" \
+                || echo "RESULT: HORIZON_HOME_WRITE_TEST=FAIL"
+              ls -A "$HORIZON_HOME_DIR" | sed 's/^/RESULT: HORIZON_HOME_DIR_ENTRY=/'
+            else
+              echo "RESULT: HORIZON_HOME_WRITE_TEST=FAIL (HORIZON_HOME_DIR does not exist)"
+            fi
           ''}";
           unshareNet = true;
         }

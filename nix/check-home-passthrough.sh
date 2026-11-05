@@ -22,15 +22,16 @@ run_scenario() {
   local label="$1"
   local testhome="$2"
   local mc_override="${3:-}"
+  local home_override="${4:-}"
 
-  echo "# Scenario: $label (HOME=$testhome${mc_override:+, HORIZON_MINECRAFT_DIR=$mc_override})" >&2
+  echo "# Scenario: $label (HOME=$testhome${mc_override:+, HORIZON_MINECRAFT_DIR=$mc_override}${home_override:+, HORIZON_HOME=$home_override})" >&2
+
+  local -a env_prefix=(env "HOME=$testhome")
+  [ -n "$mc_override" ] && env_prefix+=("HORIZON_MINECRAFT_DIR=$mc_override")
+  [ -n "$home_override" ] && env_prefix+=("HORIZON_HOME=$home_override")
 
   local out
-  if [ -n "$mc_override" ]; then
-    out="$(HOME="$testhome" HORIZON_MINECRAFT_DIR="$mc_override" nix run "$FLAKE_DIR#home-passthrough-check" 2>&1)"
-  else
-    out="$(HOME="$testhome" nix run "$FLAKE_DIR#home-passthrough-check" 2>&1)"
-  fi
+  out="$("${env_prefix[@]}" nix run "$FLAKE_DIR#home-passthrough-check" 2>&1)"
 
   echo "$out" | sed "s/^/# [$label] /" >&2
 
@@ -63,6 +64,28 @@ run_scenario() {
       OVERALL_PASS=0
     fi
   fi
+
+  local horizon_home_dir horizon_home_write
+  horizon_home_dir="$(echo "$out" | grep -oE 'RESULT: HORIZON_HOME_DIR=.*' | head -1)"
+  horizon_home_write="$(echo "$out" | grep -oE 'RESULT: HORIZON_HOME_WRITE_TEST=PASS' | head -1)"
+
+  echo "RESULT: ${label}_HORIZON_HOME_DIR=${horizon_home_dir#RESULT: HORIZON_HOME_DIR=}"
+
+  if [ -n "$horizon_home_write" ]; then
+    echo "RESULT: ${label}_HORIZON_HOME_WRITE_TEST=PASS"
+  else
+    echo "RESULT: ${label}_HORIZON_HOME_WRITE_TEST=FAIL"
+    OVERALL_PASS=0
+  fi
+
+  if [ -n "$home_override" ]; then
+    if echo "$horizon_home_dir" | grep -qF "$home_override"; then
+      echo "RESULT: ${label}_HORIZON_HOME_OVERRIDE_HONORED=PASS"
+    else
+      echo "RESULT: ${label}_HORIZON_HOME_OVERRIDE_HONORED=FAIL"
+      OVERALL_PASS=0
+    fi
+  fi
 }
 
 # Scenario 1: pre-populated profile — a decoy secret directly in $HOME plus a
@@ -72,6 +95,8 @@ TESTHOME="$(mktemp -d)"
 echo "top-secret-should-not-be-visible" > "$TESTHOME/secret.txt"
 mkdir -p "$TESTHOME/.minecraft/saves/TestWorld"
 echo "fake-level-data" > "$TESTHOME/.minecraft/saves/TestWorld/level.dat"
+mkdir -p "$TESTHOME/.local/share/horizon/saves/TestWorld"
+echo "fake-world-save-data" > "$TESTHOME/.local/share/horizon/saves/TestWorld/level.dat"
 echo "# TESTHOME: $TESTHOME" >&2
 
 run_scenario "PREPOPULATED" "$TESTHOME"
@@ -87,7 +112,12 @@ echo "fake-override-level-data" > "$MCDIR_OVERRIDE/saves/OverrideWorld/level.dat
 echo "# TESTHOME2: $TESTHOME2 (no pre-existing .minecraft)" >&2
 echo "# MCDIR_OVERRIDE: $MCDIR_OVERRIDE" >&2
 
-run_scenario "FRESH_WITH_OVERRIDE" "$TESTHOME2" "$MCDIR_OVERRIDE"
+HOMEDIR_OVERRIDE="$(mktemp -d)/horizon-home-override"
+mkdir -p "$HOMEDIR_OVERRIDE/saves/OverrideWorld"
+echo "fake-override-world-save-data" > "$HOMEDIR_OVERRIDE/saves/OverrideWorld/level.dat"
+echo "# HOMEDIR_OVERRIDE: $HOMEDIR_OVERRIDE" >&2
+
+run_scenario "FRESH_WITH_OVERRIDE" "$TESTHOME2" "$MCDIR_OVERRIDE" "$HOMEDIR_OVERRIDE"
 
 if [ "$OVERALL_PASS" -eq 1 ]; then
   echo "RESULT: RUN01_OVERALL=PASS"
