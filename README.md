@@ -12,6 +12,14 @@ nix run .#default
 
 (equivalently `nix run .#horizon-launcher`) launches the packaged Horizon launcher directly.
 
+### Install it
+
+```
+nix run github:<owner>/minecraft-rust#install
+```
+
+(from a local checkout: `nix run .#install`) installs the launcher persistently into your Nix profile: `horizon-launcher` on your `PATH`, "Horizon" in your app menu. Sign-in happens inside the launcher via Microsoft device-code. Re-running it upgrades the installed copy to the flake revision being invoked. It installs the launcher tooling only — never Minecraft game assets (see Legal Prerequisite).
+
 ### Build it
 
 ```
