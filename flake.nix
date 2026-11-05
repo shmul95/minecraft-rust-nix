@@ -2,7 +2,7 @@
   description = "Horizon (Minecraft-in-Rust) launcher, packaged for Nix/NixOS";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
   outputs =
-    { nixpkgs, ... }:
+    { nixpkgs, self, ... }:
     let
       system = "x86_64-linux"; # Horizon currently ships Linux x86_64 only
       pkgs = nixpkgs.legacyPackages.${system};
@@ -117,6 +117,27 @@
           unshareNet = true;
         }
       );
+
+      # --- Install app (shipped end-user feature): `nix run [github:<owner>/minecraft-rust]#install`
+      # persistently installs the wrapped launcher into the invoking user's default Nix
+      # profile (the profile entry doubles as the GC root). Embeds self.outPath so the
+      # exact flake source being invoked is what gets installed — identically from a
+      # GitHub ref, a rev-pinned ref, or a local `nix run .#install`. The re-run path
+      # (remove-then-install, deliberately NOT `nix profile upgrade`) is justified
+      # empirically in 261105-k7p-PLAN.md <ground_truth> items 3-4: on Nix 2.34.7 a
+      # colliding `install` is a silent no-op (no error, no upgrade), and `upgrade`
+      # re-resolves the recorded `path:/nix/store/...` ref which can never reach a newer
+      # source and breaks after GC. Scope: installs this package only (binary + .desktop
+      # entry + icons) — never Minecraft game assets, sign-in state, or config files.
+      installScript = pkgs.writeShellScript "horizon-launcher-install" ''
+        set -eu
+        if nix profile list 2>/dev/null | grep -q 'Name:.*horizon-launcher'; then
+          nix profile remove horizon-launcher
+        fi
+        nix profile install "${self.outPath}#horizon-launcher"
+        echo "Horizon launcher installed: horizon-launcher is on your PATH and \"Horizon\" appears in your app menu."
+        echo "Sign in happens inside the launcher via Microsoft device-code."
+      '';
     in
     {
       packages.${system} = {
@@ -128,6 +149,10 @@
         default = {
           type = "app";
           program = lib.getExe horizon-launcher;
+        };
+        install = {
+          type = "app";
+          program = "${installScript}";
         };
         vulkaninfo-check = {
           type = "app";
