@@ -118,6 +118,30 @@
         }
       );
 
+      # Quick-task probe (261105-o0f): proves the four native-build deps the launcher's
+      # "Native build of Horizon" check enumerates resolve inside a live FHS sandbox run.
+      # Reuses the real package's toolchain list via passthru (03-REVIEW.md WR-02 anti-drift),
+      # so this probe can never silently diverge from what the shipped package provides.
+      nativeBuildDepsCheckEnv = pkgs.buildFHSEnv (
+        appimageTools.defaultFhsEnvArgs
+        // {
+          name = "horizon-launcher-native-build-deps-check";
+          targetPkgs =
+            pkgs: (appimageTools.defaultFhsEnvArgs.targetPkgs pkgs) ++ (horizon-launcher.nativeBuildToolchainPkgs pkgs);
+          runScript = "${pkgs.writeShellScript "horizon-native-build-deps-check" ''
+            fails=0
+            command -v cc >/dev/null 2>&1 && echo "RESULT: CC_TEST=PASS" || { echo "RESULT: CC_TEST=FAIL"; fails=$((fails+1)); }
+            command -v pkg-config >/dev/null 2>&1 && echo "RESULT: PKG_CONFIG_BIN_TEST=PASS" || { echo "RESULT: PKG_CONFIG_BIN_TEST=FAIL"; fails=$((fails+1)); }
+            pkg-config --exists alsa 2>/dev/null && echo "RESULT: ALSA_PC_TEST=PASS" || { echo "RESULT: ALSA_PC_TEST=FAIL"; fails=$((fails+1)); }
+            pkg-config --exists libudev 2>/dev/null && echo "RESULT: UDEV_PC_TEST=PASS" || { echo "RESULT: UDEV_PC_TEST=FAIL"; fails=$((fails+1)); }
+            [ -f /usr/include/alsa/asoundlib.h ] && echo "RESULT: ALSA_HEADER_TEST=PASS" || { echo "RESULT: ALSA_HEADER_TEST=FAIL"; fails=$((fails+1)); }
+            [ -f /usr/include/libudev.h ] && echo "RESULT: UDEV_HEADER_TEST=PASS" || { echo "RESULT: UDEV_HEADER_TEST=FAIL"; fails=$((fails+1)); }
+            [ "$fails" -eq 0 ] && echo "RESULT: NATIVE_BUILD_DEPS_OVERALL=PASS" || echo "RESULT: NATIVE_BUILD_DEPS_OVERALL=FAIL"
+          ''}";
+          unshareNet = true;
+        }
+      );
+
       # --- Install app (shipped end-user feature): `nix run [github:<owner>/minecraft-rust]#install`
       # persistently installs the wrapped launcher into the invoking user's default Nix
       # profile (the profile entry doubles as the GC root). Embeds self.outPath so the
@@ -165,6 +189,10 @@
         home-passthrough-check = {
           type = "app";
           program = "${homePassthroughCheckEnv}/bin/horizon-launcher-home-passthrough-check";
+        };
+        native-build-deps-check = {
+          type = "app";
+          program = "${nativeBuildDepsCheckEnv}/bin/horizon-launcher-native-build-deps-check";
         };
       };
 
