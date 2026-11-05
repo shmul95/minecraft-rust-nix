@@ -69,10 +69,30 @@ let
     ];
   };
 
+  # Quick-task fix (261105-o0f, 2026-11-05): the launcher's in-app "Native build of
+  # Horizon" pre-flight check enumerates exactly four missing things on NixOS —
+  # a C compiler (looked up as `cc` by name), `pkg-config`, ALSA dev files, and
+  # libudev dev files — and tells the user to apt-install them. Ship them in the
+  # FHS env instead. Explicit `.dev` output refs (NOT extraOutputsToInstall =
+  # [ "dev" ], which would drag dev outputs of every FHS package into the closure)
+  # land headers/pc files in /usr/include and /usr/lib/pkgconfig via the rootfs
+  # merge; stdenv.cc is used rather than plain gcc because only the cc-wrapper
+  # provides `bin/cc`. Verified contents: alsa-lib.dev = alsa/asoundlib.h + alsa.pc,
+  # udev.dev = libudev.h + libudev.pc. Nothing else is added — the launcher manages
+  # its own build tooling beyond these four.
+  nativeBuildToolchainPkgs = pkgs: [
+    pkgs.stdenv.cc # bin/cc (+ bundled bintools), the name the launcher's check probes
+    pkgs.pkg-config
+    pkgs.alsa-lib.dev # /usr/include/alsa/asoundlib.h + alsa.pc
+    pkgs.udev.dev # /usr/include/libudev.h + libudev.pc (udev = systemd-minimal-libs)
+  ];
+
   wrapped = appimageTools.wrapType2 (
     {
       inherit pname version src;
-      extraPkgs = pkgs: [ ]; # defaultFhsEnvArgs already covers vulkan/alsa/udev/gl/wayland/openssl
+      # defaultFhsEnvArgs covers the runtime libs; this adds only the native-build
+      # toolchain the in-app "Native build of Horizon" Build step needs (261105-o0f).
+      extraPkgs = nativeBuildToolchainPkgs;
     }
     // homeNarrowingArgs
     // {
@@ -114,4 +134,7 @@ symlinkJoin {
   # Exposed so flake.nix's home-passthrough-check diagnostic app can reuse the exact
   # same narrowing args instead of a hand-duplicated copy (03-REVIEW.md WR-02).
   passthru.homeNarrowingArgs = homeNarrowingArgs;
+  # Also exposed so flake.nix's native-build-deps-check probe reuses the exact same
+  # toolchain package list instead of a hand-duplicated copy (same anti-drift pattern).
+  passthru.nativeBuildToolchainPkgs = nativeBuildToolchainPkgs;
 }
