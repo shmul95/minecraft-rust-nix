@@ -28,9 +28,20 @@ let
   # (running as root -> /root, or a custom useradd -d outside /home) falls back to the fully-exposed
   # default for its enclosing top-level directory; not handled here (03-REVIEW.md WR-04, tracked
   # follow-up, not re-litigated in this phase).
+  #
+  # Quick-task fix (261105-dsg, 2026-11-05): a third path, ${HORIZON_HOME:-$HOME/.local/share/horizon}
+  # (overridable via HORIZON_HOME), was missing from this narrowing and is Horizon's actual
+  # single-player game-data directory — world saves, options.txt, screenshots. Because it was not
+  # explicitly rebound, every sandboxed run wrote it into the ephemeral tmpfs copy from the
+  # `--tmpfs $HOME` line below and lost it on exit, so closing and reopening Horizon lost the
+  # world. Confirmed empirically against the live installed package: `horizon-launcher instance
+  # list --json` reports the default instance's `"home"` field as `/home/<user>/.local/share/horizon`
+  # (distinct from `.local/share/horizon-launcher`), and `HORIZON_HOME=<dir> horizon-launcher
+  # instance list --json` changes that reported field to `<dir>`, confirming the override is
+  # honored exactly like `HORIZON_MINECRAFT_DIR` already is.
   homeNarrowingArgs = {
     extraPreBwrapCmds = ''
-      for d in "$HOME/.local/share/horizon-launcher" "''${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"; do
+      for d in "$HOME/.local/share/horizon-launcher" "''${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}" "''${HORIZON_HOME:-$HOME/.local/share/horizon}"; do
         case "$d" in
           *" "*) echo "horizon-launcher: refusing to sandbox a path containing a space: $d" >&2; exit 1 ;;
         esac
@@ -45,6 +56,7 @@ let
       "--tmpfs $HOME"
       "--bind \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft} \${HORIZON_MINECRAFT_DIR:-$HOME/.minecraft}"
       "--bind $HOME/.local/share/horizon-launcher $HOME/.local/share/horizon-launcher"
+      "--bind \${HORIZON_HOME:-$HOME/.local/share/horizon} \${HORIZON_HOME:-$HOME/.local/share/horizon}"
       # Integration-audit fix (v1.0-MILESTONE-AUDIT.md BLOCKER): wrapType2's default script
       # unconditionally does `--chdir "$(pwd)"`. If the invoking shell's cwd is anywhere under
       # the real $HOME other than the two rebind targets above, that path is now an empty
