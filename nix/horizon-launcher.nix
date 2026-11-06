@@ -120,10 +120,19 @@ symlinkJoin {
   name = "${pname}-${version}";
   paths = [ wrapped ];
   nativeBuildInputs = [ makeWrapper ];
+  # Quick-task fix (261106-ke8, 2026-11-06): Horizon's internal wgpu backend auto-selection
+  # does not request the Vulkan backend by default inside this appimageTools.wrapType2 FHS
+  # sandbox and falls back to a GL path incompatible with the provided surface, crashing on
+  # startup with "No Vulkan or OpenGL graphics driver found". The Vulkan loader and RADV
+  # driver are confirmed present and working in the sandbox (vulkaninfo-check passes, detects
+  # "AMD Radeon Graphics (RADV RENOIR)"). Forcing WGPU_BACKEND=vulkan makes Horizon start
+  # successfully — verified live: `env WGPU_BACKEND=vulkan nix run .#default` opens the
+  # launcher with only benign xkbcommon Compose-table warnings, no crash.
   postBuild = ''
     wrapProgram $out/bin/${pname} \
       --set HORIZON_LAUNCHER_NO_SELF_UPDATE 1 \
-      --set HORIZON_LAUNCHER_DESKTOP_EXEC "$out/bin/${pname}"
+      --set HORIZON_LAUNCHER_DESKTOP_EXEC "$out/bin/${pname}" \
+      --set WGPU_BACKEND vulkan
   '';
   meta = {
     description = "Horizon launcher (Minecraft-in-Rust), packaged via appimageTools.wrapType2";
